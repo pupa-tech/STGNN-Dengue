@@ -1,0 +1,25 @@
+# Dados e artefatos pesados
+data/*
+!data/README.md
+*.npy
+*.npz
+*.pt
+*.ckpt
+checkpoints/
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
