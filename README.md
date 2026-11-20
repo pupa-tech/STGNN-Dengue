@@ -22,6 +22,5 @@ notebooks/       a narrativa do estudo; só importam de src/
 configs/         configurações (YAML) dos experimentos
 results/         tabelas e figuras finais
 tests/           testes automáticos
-docs/decisoes/   registro das decisões do projeto
 data/            dados brutos (fora do git)
 ```
