@@ -1,5 +1,6 @@
 """Resultado do STGCN na validação, com 3 seeds (tasks 16 e 17).
 
+    python -m dengue.stgcn_validacao   # grafo geográfico e sem grafo (identidade)
     python -m dengue.stgcn_validacao
 
 Gera `results/stgcn_validacao.csv`: uma linha por (grafo, seed), mais a média e o desvio
@@ -55,6 +56,7 @@ def avaliar(
     return pd.DataFrame(linhas).set_index("seed")
 
 
+def main(caminho: str | Path = CAMINHO_RESULTADO, tipos=grafo.TIPOS_GRAFO) -> pd.DataFrame:
 def main(caminho: str | Path = CAMINHO_RESULTADO, tipos=("geo",)) -> pd.DataFrame:
     df = dados.carregar_tabela()
     partes = []
