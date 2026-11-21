@@ -150,3 +150,62 @@ def correlacao_defasada(df: pd.DataFrame, coluna: str, lags=range(27)) -> pd.Ser
         b = (b - b.mean(0)) / np.where(desvio_b == 0, np.nan, desvio_b)
         resultado[lag] = np.nanmean((a * b).mean(0))
     return pd.Series(resultado, name=coluna)
+
+
+# --- Split temporal e janelas (task 10) ---
+
+# Entradas dos modelos: a própria taxa e o clima (decisão G2, task 10)
+ENTRADAS = [ALVO, *CLIMA]
+W = 4  # semanas de entrada
+H = 4  # semanas previstas (horizonte)
+
+# Partições por ano, em ordem cronológica, sem sobreposição
+PARTICOES = {
+    "treino": ("1999-01-01", "2012-12-31"),
+    "validacao": ("2013-01-01", "2015-12-31"),
+    "teste": ("2016-01-01", "2021-12-31"),
+}
+
+
+def montar_tensor(df: pd.DataFrame, entradas=ENTRADAS):
+    """Converte a tabela longa em tensores alinhados no tempo.
+
+    Devolve `(X, y, datas)`:
+    - `X`: array [T, N, F] com as colunas `entradas` (nós na ordem de `municipios`);
+    - `y`: array [T, N] com o alvo bruto (taxa);
+    - `datas`: as T semanas, em ordem.
+    """
+    X = np.stack([pivotar(df, c).to_numpy() for c in entradas], axis=-1)
+    alvo = pivotar(df, ALVO)
+    return X.astype(np.float32), alvo.to_numpy().astype(np.float32), pd.DatetimeIndex(alvo.index)
+
+
+def indices_particoes(datas: pd.DatetimeIndex) -> dict[str, np.ndarray]:
+    """Índices (no eixo do tempo) das semanas de cada partição."""
+    return {
+        nome: np.flatnonzero((datas >= inicio) & (datas <= fim))
+        for nome, (inicio, fim) in PARTICOES.items()
+    }
+
+
+def janelas(X: np.ndarray, y: np.ndarray, indices: np.ndarray, w: int = W, h: int = H):
+    """Recorta janelas deslizantes que ficam **inteiras dentro** de uma partição.
+
+    Para cada semana t da partição, a entrada são as semanas t-w+1..t e o alvo são as
+    semanas t+1..t+h. Uma janela só é aceita se todas as w + h semanas estiverem na
+    partição, então nenhuma semana de outra partição entra, nem como entrada.
+
+    Devolve `(x, alvo, idx_entrada, idx_alvo)`:
+    - `x`: [S, w, N, F]; `alvo`: [S, h, N];
+    - `idx_entrada`: [S, w] e `idx_alvo`: [S, h], índices das semanas no tempo total.
+    """
+    indices = np.asarray(indices)
+    if len(indices) and not (np.diff(indices) == 1).all():
+        raise ValueError("Os índices da partição precisam ser semanas consecutivas")
+    n_amostras = len(indices) - w - h + 1
+    if n_amostras <= 0:
+        raise ValueError(f"Partição curta demais para w={w} e h={h}")
+    inicio = indices[0] + np.arange(n_amostras)
+    idx_entrada = inicio[:, None] + np.arange(w)
+    idx_alvo = inicio[:, None] + w + np.arange(h)
+    return X[idx_entrada], y[idx_alvo], idx_entrada, idx_alvo
