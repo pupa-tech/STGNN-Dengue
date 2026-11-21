@@ -1,0 +1,18 @@
+# Task 19, etapa 3: agendas para os 2 melhores otimizadores da etapa 2, mais o Muon,
+# cada um no seu melhor η (menor perda na validação, seed 0):
+#   AdamW 0,1 (0,0956) · Adam 0,03 (0,0969) · Muon 0,01 (0,1083)
+# O ponto warmup_cos já rodou na etapa 2 e é reaproveitado.
+# Rode com:  python -m dengue.varredura configs/otimizacao/etapa3.yaml
+base:
+  etapa: etapa3
+  modelo: stgcn
+  grafo: geo
+  passos: 920
+  lote: 32
+  clip: 5.0
+  log_cada: 20
+  seeds: [0]
+grade:
+  - {otimizador: adamw, lr: 0.1, agenda: [const, cos, warmup_cos, multistep]}
+  - {otimizador: adam, lr: 0.03, agenda: [const, cos, warmup_cos, multistep]}
+  - {otimizador: muon, lr: 0.01, agenda: [const, cos, warmup_cos, multistep]}
