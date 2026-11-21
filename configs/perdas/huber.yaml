@@ -1,0 +1,18 @@
+# Task 20: perdas × seeds. Mesma config nas três perdas; só muda a linha "perda".
+# AdamW η = 1e-2 com warmup + cosseno (vencedora do desafio 3).
+# Rode com:  python -m dengue.experimento configs/perdas/huber.yaml --resultados results/perdas
+id: e20_huber_adamw_lr1e-2_warmup_cos
+etapa: perdas
+modelo: stgcn
+grafo: geo
+otimizador: adamw
+lr: 0.01
+agenda: warmup_cos
+perda: huber          # mse | huber | tweedie
+huber_delta: 1.0   # só vale para huber (em log1p)
+tweedie_p: 1.5     # só vale para tweedie
+passos: 920
+lote: 32
+clip: 5.0
+log_cada: 20
+seeds: [0, 1, 2]
