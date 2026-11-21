@@ -1,0 +1,19 @@
+# Task 21: configuração final do STGCN, congelada antes de abrir o teste.
+# Vem só da validação:
+#   - otimizador e agenda: task 19 (decisão: AdamW, warmup + cosseno, η = 0,01);
+#   - perda: task 20 (Huber teve o menor MAE com exatamente esta configuração).
+# Rode com:  python -m dengue.avaliacao_final   (só uma vez: o script se recusa a repetir)
+id: final_stgcn_geo_adamw_lr1e-2_warmup_cos_huber
+etapa: final
+modelo: stgcn
+grafo: geo
+otimizador: adamw
+lr: 0.01
+agenda: warmup_cos
+perda: huber
+huber_delta: 1.0
+passos: 920
+lote: 32
+clip: 5.0
+log_cada: 20
+seeds: [0, 1, 2]
