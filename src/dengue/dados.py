@@ -6,6 +6,7 @@ Fluxo: `carregar_csv()` (bruto) -> `limpar()` (tabela município × semana valid
 -> `salvar_tabela()` / `carregar_tabela()`.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -209,3 +210,85 @@ def janelas(X: np.ndarray, y: np.ndarray, indices: np.ndarray, w: int = W, h: in
     idx_entrada = inicio[:, None] + np.arange(w)
     idx_alvo = inicio[:, None] + w + np.arange(h)
     return X[idx_entrada], y[idx_alvo], idx_entrada, idx_alvo
+
+
+# --- Normalização ajustada só no treino (task 11) ---
+
+
+def transformar_alvo(y: np.ndarray) -> np.ndarray:
+    """log1p(y): comprime a cauda longa do alvo e mantém os zeros em zero."""
+    return np.log1p(y)
+
+
+def inverter_alvo(y_log: np.ndarray) -> np.ndarray:
+    """Volta da escala log1p para a taxa bruta. Previsões negativas viram zero."""
+    return np.clip(np.expm1(y_log), 0, None)
+
+
+@dataclass
+class Normalizador:
+    """z-score por variável, com média e desvio calculados **só no treino**.
+
+    O canal do alvo recebe `log1p` antes do z-score, igual ao alvo dos modelos.
+    """
+
+    media: np.ndarray  # [F]
+    desvio: np.ndarray  # [F]
+    canal_alvo: int = 0
+
+    @classmethod
+    def ajustar(cls, X_treino: np.ndarray, canal_alvo: int = 0) -> "Normalizador":
+        """Calcula média e desvio de cada variável a partir de X_treino [T_treino, N, F]."""
+        X_log = cls._log_no_alvo(X_treino, canal_alvo)
+        media = X_log.mean(axis=(0, 1))
+        desvio = X_log.std(axis=(0, 1))
+        desvio = np.where(desvio == 0, 1.0, desvio)  # variável constante: não divide por zero
+        return cls(media.astype(np.float32), desvio.astype(np.float32), canal_alvo)
+
+    def transformar(self, X: np.ndarray) -> np.ndarray:
+        """Aplica log1p no canal do alvo e o z-score do treino em X [..., F]."""
+        return ((self._log_no_alvo(X, self.canal_alvo) - self.media) / self.desvio).astype(
+            np.float32
+        )
+
+    @staticmethod
+    def _log_no_alvo(X: np.ndarray, canal_alvo: int) -> np.ndarray:
+        X = np.array(X, dtype=np.float64)  # cópia: nunca altera o array original
+        X[..., canal_alvo] = transformar_alvo(X[..., canal_alvo])
+        return X
+
+
+@dataclass
+class Particao:
+    """Janelas prontas de uma partição."""
+
+    x: np.ndarray  # [S, W, N, F] entradas normalizadas
+    y: np.ndarray  # [S, H, N] alvo em log1p (o que os modelos aprendem)
+    y_bruto: np.ndarray  # [S, H, N] alvo na escala original (para as métricas)
+    datas_entrada: np.ndarray  # [S, W]
+    datas_alvo: np.ndarray  # [S, H]
+
+
+def preparar(df: pd.DataFrame, entradas=ENTRADAS, w: int = W, h: int = H):
+    """Pipeline completo: tensor -> partições -> normalização do treino -> janelas.
+
+    Devolve `(particoes, normalizador)`, em que `particoes` é um dict
+    {"treino", "validacao", "teste"} -> `Particao`.
+    """
+    X, y, datas = montar_tensor(df, entradas)
+    indices = indices_particoes(datas)
+    normalizador = Normalizador.ajustar(X[indices["treino"]], canal_alvo=entradas.index(ALVO))
+    X_norm = normalizador.transformar(X)
+    y_log = transformar_alvo(y).astype(np.float32)
+
+    particoes = {}
+    for nome, idx in indices.items():
+        x, alvo_log, idx_entrada, idx_alvo = janelas(X_norm, y_log, idx, w, h)
+        particoes[nome] = Particao(
+            x=x,
+            y=alvo_log,
+            y_bruto=y[idx_alvo],
+            datas_entrada=datas.to_numpy()[idx_entrada],
+            datas_alvo=datas.to_numpy()[idx_alvo],
+        )
+    return particoes, normalizador
