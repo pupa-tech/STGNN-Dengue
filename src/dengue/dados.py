@@ -132,3 +132,21 @@ def carregar_tabela(caminho: str | Path = CAMINHO_TABELA) -> pd.DataFrame:
     df = pd.read_csv(caminho, parse_dates=["data"])
     validar(df)
     return df
+
+
+def correlacao_defasada(df: pd.DataFrame, coluna: str, lags=range(27)) -> pd.Series:
+    """Correlação de Pearson entre `coluna` na semana t - lag e o alvo na semana t.
+
+    É calculada dentro de cada município e depois tirada a média entre eles. Municípios em
+    que o alvo é constante (sem variância) no trecho são ignorados.
+    """
+    x = pivotar(df, coluna).to_numpy()
+    y = pivotar(df, ALVO).to_numpy()
+    resultado = {}
+    for lag in lags:
+        a, b = x[: len(x) - lag], y[lag:]
+        a = (a - a.mean(0)) / a.std(0)
+        desvio_b = b.std(0)
+        b = (b - b.mean(0)) / np.where(desvio_b == 0, np.nan, desvio_b)
+        resultado[lag] = np.nanmean((a * b).mean(0))
+    return pd.Series(resultado, name=coluna)
