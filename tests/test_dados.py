@@ -5,6 +5,7 @@ Os testes com o CSV real são pulados quando o arquivo não existe (por exemplo,
 
 import pandas as pd
 import pytest
+from conftest import fazer_bruto
 
 from dengue import dados
 
@@ -107,3 +108,18 @@ def test_tabela_real_limpa_tem_formato_esperado():
     df = dados.limpar(dados.carregar_csv())
     assert df.shape == (dados.N_MUNICIPIOS * dados.N_SEMANAS, len(dados.NOMES_COLUNAS))
     assert dados.pivotar(df, dados.ALVO).shape == (dados.N_SEMANAS, dados.N_MUNICIPIOS)
+
+
+# --- Apoio à EDA (task 9) ---
+
+
+def test_correlacao_defasada_encontra_o_lag_certo():
+    # monta um alvo que é a chuva atrasada 3 semanas: o pico da correlação tem de ser no lag 3
+    df = dados.limpar(fazer_bruto(n_municipios=2, n_semanas=60))
+    chuva = dados.pivotar(df, "precipitacao")
+    alvo = chuva.shift(3).fillna(0).stack().rename("taxa")
+    df = df.drop(columns="taxa").merge(alvo.reset_index(), on=["data", "municipio"])
+    df = df[list(dados.NOMES_COLUNAS.values())]
+    r = dados.correlacao_defasada(df, "precipitacao", lags=range(6))
+    assert r.idxmax() == 3
+    assert r[3] > 0.9
