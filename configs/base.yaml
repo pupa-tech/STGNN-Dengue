@@ -1,0 +1,15 @@
+# Baseline do protocolo do desafio 3: Adam, η = 1e-3, agenda constante, 3 seeds.
+# Rode com:  python -m dengue.experimento configs/base.yaml
+id: e1_base_adam_lr1e-3_const
+etapa: etapa1
+modelo: stgcn        # stgcn | lstm
+grafo: geo           # geo | identidade
+otimizador: adam     # sgd | sgd_nesterov | adam | adamw | muon
+lr: 0.001
+weight_decay: 0.0
+agenda: const        # const | cos | warmup_cos | multistep
+passos: 920          # orçamento fixo (≈ 40 épocas com lote 32)
+lote: 32
+clip: 5.0
+log_cada: 20
+seeds: [0, 1, 2]
