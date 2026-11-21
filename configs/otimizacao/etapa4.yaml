@@ -1,0 +1,16 @@
+# Task 19, etapa 4: as 3 melhores combinações da etapa 3 (menor perda na validação, seed 0)
+# confirmadas com 3 seeds. A seed 0 já rodou e é reaproveitada.
+#   AdamW 0,1 warmup_cos (0,0956) · Adam 0,03 warmup_cos (0,0969) · Adam 0,03 const (0,0972)
+# Rode com:  python -m dengue.varredura configs/otimizacao/etapa4.yaml
+base:
+  etapa: etapa4
+  modelo: stgcn
+  grafo: geo
+  passos: 920
+  lote: 32
+  clip: 5.0
+  log_cada: 20
+  seeds: [0, 1, 2]
+grade:
+  - {otimizador: adamw, lr: 0.1, agenda: warmup_cos}
+  - {otimizador: adam, lr: 0.03, agenda: [warmup_cos, const]}

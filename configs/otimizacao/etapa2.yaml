@@ -1,0 +1,19 @@
+# Task 19, etapa 2: varredura de η para cada otimizador.
+# Uma seed, agenda warmup + cosseno, perda MSE em log1p (fixa), 920 passos.
+# Rode com:  python -m dengue.varredura configs/otimizacao/etapa2.yaml
+base:
+  etapa: etapa2
+  modelo: stgcn
+  grafo: geo
+  agenda: warmup_cos
+  passos: 920
+  lote: 32
+  clip: 5.0
+  log_cada: 20
+  seeds: [0]
+grade:
+  - {otimizador: [sgd, sgd_nesterov], lr: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0]}
+  - {otimizador: [adam, adamw], lr: [0.0003, 0.001, 0.003, 0.01, 0.03, 0.1]}
+  - {otimizador: muon, lr: [0.001, 0.003, 0.01, 0.03, 0.1]}
+  # extensão: o melhor η do AdamW caiu na borda (0,1), então a grade sobe até 1,0
+  - {otimizador: [adam, adamw], lr: [0.3, 1.0]}
