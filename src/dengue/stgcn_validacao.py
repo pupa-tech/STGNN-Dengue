@@ -1,7 +1,6 @@
 """Resultado do STGCN na validação, com 3 seeds (tasks 16 e 17).
 
     python -m dengue.stgcn_validacao   # grafo geográfico e sem grafo (identidade)
-    python -m dengue.stgcn_validacao
 
 Gera `results/stgcn_validacao.csv`: uma linha por (grafo, seed), mais a média e o desvio
 de cada grafo. As colunas são as mesmas de `results/lstm_validacao.csv`.
