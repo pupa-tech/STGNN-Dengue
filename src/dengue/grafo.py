@@ -113,3 +113,28 @@ def teste_vizinhos_aleatorios(series, adj, n_sorteios: int = 1000, seed: int = 0
         "corr_aleatorios_todos": corr_aleat,
         "p_valor": float(np.mean(corr_aleat >= corr_viz)),
     }
+
+
+TIPOS_GRAFO = ("geo", "identidade")
+
+
+def laplaciana_do_projeto(df, tipo: str = "geo", k: int = 5) -> np.ndarray:
+    """`L~` pronta para o STGCN, a partir da tabela limpa (`dados.limpar`).
+
+    - `"geo"`: k-NN geográfico com kernel gaussiano (task 15);
+    - `"identidade"`: grafo sem arestas. Então `L = I` e `L~ = I`, e a convolução de
+      Chebyshev só olha o próprio município (é o controle "sem grafo" da task 17).
+
+    Os nós seguem a ordem de `dados.municipios` (códigos IBGE crescentes).
+    """
+    from dengue import dados  # import local: grafo.py não depende de pandas no topo
+
+    if tipo not in TIPOS_GRAFO:
+        raise ValueError(f"tipo deve ser um de {TIPOS_GRAFO}, recebido {tipo!r}")
+    coord = df.groupby("municipio")[["latitude", "longitude"]].first()
+    coord = coord.loc[dados.municipios(df)]
+    n = len(coord)
+    if tipo == "identidade":
+        return np.eye(n)
+    adj = grafo_knn(distancias_haversine(coord["latitude"], coord["longitude"]), k=k)
+    return laplaciana_escalada(adj)
