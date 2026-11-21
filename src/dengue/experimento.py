@@ -30,7 +30,7 @@ import torch
 import yaml
 from torch import nn
 
-from dengue import dados, grafo, metricas, modelos, treino
+from dengue import dados, grafo, metricas, modelos, perdas, treino
 
 DIR_RESULTADOS = dados.RAIZ / "results"
 OTIMIZADORES = ("sgd", "sgd_nesterov", "adam", "adamw", "muon")
@@ -48,6 +48,9 @@ class Config:
     weight_decay: float = 0.0
     lr_adamw_muon: float = 3e-4  # η do AdamW que treina, no Muon, os parâmetros que não são matriz
     agenda: str = "const"
+    perda: str = "mse"  # mse | huber | tweedie (task 20)
+    huber_delta: float = 1.0
+    tweedie_p: float = 1.5
     frac_warmup: float = 0.05
     passos: int = 920
     lote: int = 32
@@ -62,6 +65,7 @@ class Config:
             ("grafo", self.grafo, grafo.TIPOS_GRAFO),
             ("otimizador", self.otimizador, OTIMIZADORES),
             ("agenda", self.agenda, AGENDAS),
+            ("perda", self.perda, perdas.PERDAS),
         ]:
             if valor not in validos:
                 raise ValueError(f"{nome} deve ser um de {validos}, recebido {valor!r}")
@@ -201,6 +205,25 @@ def _norma(tensores) -> float:
     return float(torch.sqrt(sum((t.detach() ** 2).sum() for t in tensores)))
 
 
+def _perda(cfg: Config, z: torch.Tensor, y: torch.Tensor, reducao: str = "mean") -> torch.Tensor:
+    return perdas.calcular(cfg.perda, z, y, cfg.huber_delta, cfg.tweedie_p, reducao)
+
+
+@torch.no_grad()
+def perda_particao(modelo: nn.Module, p: dados.Particao, cfg: Config, lote: int = 256) -> float:
+    """Perda média do experimento (a mesma do treino) numa partição inteira.
+
+    A melhor época é escolhida por ela: escolher pelo MSE favoreceria a perda MSE.
+    """
+    modelo.eval()
+    x, y = treino._tensores(p)
+    soma = sum(
+        float(_perda(cfg, modelo(x[i : i + lote]), y[i : i + lote], "sum"))
+        for i in range(0, len(x), lote)
+    )
+    return soma / y.numel()
+
+
 def treinar_por_passos(
     modelo: nn.Module,
     p_treino: dados.Particao,
@@ -238,7 +261,7 @@ def treinar_por_passos(
             idx = ordem[i : i + cfg.lote]
             for o in otimizadores:
                 o.zero_grad()
-            perda = nn.functional.mse_loss(modelo(x[idx]), y[idx])
+            perda = _perda(cfg, modelo(x[idx]), y[idx])
             if not torch.isfinite(perda):
                 divergiu = True
                 break
@@ -276,7 +299,7 @@ def treinar_por_passos(
 
         if divergiu:
             break
-        perda_val = treino.perda(modelo, p_val)
+        perda_val = perda_particao(modelo, p_val, cfg)
         log_val.append({"epoca": epoca, "passo": passo, "perda_val": perda_val})
         if not math.isfinite(perda_val):
             divergiu = True
@@ -330,6 +353,7 @@ def executar(
             "seed": seed,
             **info,
             **metricas.resumo(p_val.y_bruto, y_hat, limiar),
+            **metricas.por_regime(p_val.y_bruto, y_hat, limiar),
             "tempo_s": round(time.time() - inicio, 1),
         }
         log.to_csv(dir_logs / f"{nome}.csv", index=False)
@@ -343,12 +367,26 @@ def executar(
     return pd.DataFrame(linhas)
 
 
+def resumir(exp: pd.DataFrame, por: str | list[str], colunas: list[str]) -> pd.DataFrame:
+    """Tabela média ± desvio entre seeds: uma linha por grupo, colunas `<m>_media`, `<m>_desvio`
+    e `n_seeds`. O desvio é o amostral (ddof=1), como nas outras tabelas do projeto."""
+    grupos = exp.groupby(por, sort=False)
+    media = grupos[colunas].mean().add_suffix("_media")
+    desvio = grupos[colunas].std().add_suffix("_desvio")
+    tabela = pd.concat([media, desvio], axis=1)
+    ordem = [f"{c}_{s}" for c in colunas for s in ("media", "desvio")]
+    return tabela[ordem].assign(n_seeds=grupos.size())
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Roda um experimento descrito num YAML.")
     parser.add_argument("config", help="caminho do YAML (veja configs/base.yaml)")
     parser.add_argument("--seeds", type=int, nargs="*", help="sobrescreve as seeds do YAML")
+    parser.add_argument(
+        "--resultados", default=DIR_RESULTADOS, help="pasta de saída (padrão: results/)"
+    )
     args = parser.parse_args(argv)
-    executar(carregar_config(args.config), seeds=args.seeds)
+    executar(carregar_config(args.config), seeds=args.seeds, dir_resultados=args.resultados)
 
 
 if __name__ == "__main__":

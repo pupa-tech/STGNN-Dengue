@@ -76,6 +76,22 @@ def mae_surto(y, y_hat, limiar: float) -> float:
     return float(np.mean(np.abs(y[mascara] - y_hat[mascara])))
 
 
+def por_regime(y, y_hat, limiar: float) -> dict[str, float]:
+    """MAE e viés (média de previsto − real) separados em surto e calmaria.
+
+    Viés positivo = o modelo superestima. Serve para ver se uma perda erra de um lado só,
+    por exemplo superestimando as semanas calmas.
+    """
+    y, y_hat = _como_array(y, y_hat)
+    mascara = mascara_surto(y, limiar)
+    resultado = {}
+    for nome, m in (("surto", mascara), ("calmaria", ~mascara)):
+        erro = y_hat[m] - y[m]
+        resultado[f"mae_{nome}"] = float(np.mean(np.abs(erro))) if m.any() else float("nan")
+        resultado[f"vies_{nome}"] = float(np.mean(erro)) if m.any() else float("nan")
+    return resultado
+
+
 def resumo(y, y_hat, limiar: float) -> dict[str, float]:
     """Todas as métricas de uma vez, no formato usado nas tabelas de resultado."""
     resultado = {

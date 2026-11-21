@@ -57,7 +57,6 @@ def avaliar(
 
 
 def main(caminho: str | Path = CAMINHO_RESULTADO, tipos=grafo.TIPOS_GRAFO) -> pd.DataFrame:
-def main(caminho: str | Path = CAMINHO_RESULTADO, tipos=("geo",)) -> pd.DataFrame:
     df = dados.carregar_tabela()
     partes = []
     for tipo in tipos:
