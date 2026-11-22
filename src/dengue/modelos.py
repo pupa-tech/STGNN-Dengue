@@ -125,3 +125,97 @@ class STGCN(nn.Module):
         z = self.norma(z.permute(0, 2, 3, 1))  # [B, N, W, C], normaliza só os canais
         z = self.dropout(z).flatten(2)  # [B, N, W·C]
         return self.cabeca(z).permute(0, 2, 1)  # [B, H, N]
+
+
+# --- Transformer espacial (task 23) ---
+
+
+class CamadaAtencao(nn.Module):
+    """Uma camada do Transformer (pre-norm): atenção entre municípios e MLP, ambas residuais.
+
+    Entrada e saída: [B, N, d], um token por município. Devolve também os pesos de
+    atenção [B, N, N], com a média das cabeças: a linha i diz quanto o município i
+    olhou para cada um dos outros.
+    """
+
+    def __init__(self, d: int, cabecas: int, dropout: float):
+        super().__init__()
+        self.norma1 = nn.LayerNorm(d)
+        self.atencao = nn.MultiheadAttention(d, cabecas, dropout=dropout, batch_first=True)
+        self.norma2 = nn.LayerNorm(d)
+        self.mlp = nn.Sequential(
+            nn.Linear(d, 2 * d), nn.GELU(), nn.Dropout(dropout), nn.Linear(2 * d, d)
+        )
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, z: torch.Tensor, mascara: torch.Tensor | None = None):
+        a = self.norma1(z)
+        a, pesos = self.atencao(a, a, a, attn_mask=mascara, need_weights=True)
+        z = z + self.dropout(a)
+        z = z + self.dropout(self.mlp(self.norma2(z)))
+        return z, pesos
+
+
+class TransformerEspacial(nn.Module):
+    """Transformer com atenção entre os municípios, no lugar de um grafo fixo (task 23).
+
+    Mesmo formato dos outros modelos: entrada [B, W, N, F] normalizada, saída [B, H, N]
+    em `log1p`.
+
+    - **Token:** cada município vira um vetor de dimensão `d`. As W semanas × F variáveis
+      dele passam por uma camada linear, e somamos um embedding do município, aprendido,
+      que funciona como a "identidade" dele (no STGCN, quem diferencia os nós é o grafo).
+    - **Atenção:** em cada camada, cada município decide, pelos dados da janela, quanto
+      olhar para cada um dos outros 79. É um grafo aprendido e que muda a cada semana.
+    - **Cabeça:** o token final de cada município vira as H previsões.
+
+    Com `atencao=False`, uma máscara deixa cada município olhar só para si mesmo. É a
+    ablação equivalente ao STGCN com A = I: a arquitetura é a mesma, mas não há troca de
+    informação entre municípios.
+    """
+
+    def __init__(
+        self,
+        n_municipios: int,
+        n_entradas: int = len(dados.ENTRADAS),
+        d: int = 32,
+        cabecas: int = 4,
+        camadas: int = 2,
+        w: int = dados.W,
+        h: int = dados.H,
+        dropout: float = 0.2,
+        atencao: bool = True,
+    ):
+        super().__init__()
+        self.entrada = nn.Linear(w * n_entradas, d)
+        self.municipio = nn.Parameter(torch.zeros(n_municipios, d))
+        nn.init.normal_(self.municipio, std=0.02)
+        self.camadas = nn.ModuleList(CamadaAtencao(d, cabecas, dropout) for _ in range(camadas))
+        self.norma = nn.LayerNorm(d)
+        self.cabeca = nn.Linear(d, h)
+        # True = proibido. Sem atenção, só a diagonal fica liberada.
+        mascara = None if atencao else ~torch.eye(n_municipios, dtype=torch.bool)
+        self.register_buffer("mascara", mascara)
+
+    def _codificar(self, x: torch.Tensor):
+        b, w, n, f = x.shape
+        tokens = x.permute(0, 2, 1, 3).reshape(b, n, w * f)  # [B, N, W·F]
+        z = self.entrada(tokens) + self.municipio  # [B, N, d]
+        pesos = []
+        for camada in self.camadas:
+            z, p = camada(z, self.mascara)
+            pesos.append(p)
+        return self.norma(z), pesos
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z, _ = self._codificar(x)
+        return self.cabeca(z).permute(0, 2, 1)  # [B, H, N]
+
+    @torch.no_grad()
+    def mapas_atencao(self, x: torch.Tensor) -> torch.Tensor:
+        """Pesos de atenção [camadas, B, N, N] (média das cabeças), em modo de avaliação."""
+        estava_treinando = self.training
+        self.eval()
+        _, pesos = self._codificar(x)
+        self.train(estava_treinando)
+        return torch.stack(pesos)
