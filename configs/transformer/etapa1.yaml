@@ -1,0 +1,21 @@
+# Task 23, etapa 1: varredura de η do Transformer espacial, com uma seed.
+# Mesmo protocolo da configuração final do STGCN (configs/final.yaml): AdamW, warmup + cosseno,
+# perda Huber em log1p, 920 passos, lote 32, clip 5. Só a arquitetura muda.
+# Critério: menor perda na validação (como na task 19).
+# Rode com:  python -m dengue.varredura configs/transformer/etapa1.yaml --resultados results/transformer
+prefixo: e23_transformer
+base:
+  etapa: etapa1
+  modelo: transformer
+  atencao: true
+  otimizador: adamw
+  agenda: warmup_cos
+  perda: huber
+  huber_delta: 1.0
+  passos: 920
+  lote: 32
+  clip: 5.0
+  log_cada: 20
+  seeds: [0]
+grade:
+  - {lr: [0.001, 0.003, 0.01, 0.03]}

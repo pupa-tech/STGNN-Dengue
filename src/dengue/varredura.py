@@ -4,6 +4,7 @@
 
 Formato do YAML:
 
+    prefixo: e19     # opcional (padrão e19): começo do id de cada ponto
     base:            # campos comuns a todos os pontos (os mesmos da `experimento.Config`)
       agenda: warmup_cos
       seeds: [0]
@@ -11,9 +12,11 @@ Formato do YAML:
       - {otimizador: sgd, lr: [0.01, 0.1, 1.0]}
       - {otimizador: [adam, adamw], lr: [0.001, 0.01]}
 
-O `id` de cada ponto é gerado a partir da config (`e19_<otimizador>_lr<η>_<agenda>`), sem a
-etapa. Assim, um ponto que já rodou em outra etapa é reaproveitado (o executor pula o
-que já tem log), e a etapa seguinte só roda o que falta.
+O `id` de cada ponto é gerado a partir da config (`<prefixo>_<otimizador>_lr<η>_<agenda>`), sem
+a etapa. Assim, um ponto que já rodou em outra etapa é reaproveitado (o executor pula o que já
+tem log), e a etapa seguinte só roda o que falta. Outro modelo precisa de outro prefixo (o
+Transformer da task 23 usa `e23_transformer`): sem isso, o id seria igual ao de um ponto do
+STGCN que já rodou, e o ponto seria pulado.
 """
 
 import argparse
@@ -26,13 +29,14 @@ import yaml
 from dengue import experimento
 
 
-def gerar_id(cfg: dict) -> str:
-    return f"e19_{cfg['otimizador']}_lr{cfg['lr']:g}_{cfg['agenda']}"
+def gerar_id(cfg: dict, prefixo: str = "e19") -> str:
+    return f"{prefixo}_{cfg['otimizador']}_lr{cfg['lr']:g}_{cfg['agenda']}"
 
 
 def expandir(especificacao: dict) -> list[experimento.Config]:
     """Lista de configs da grade, na ordem do YAML, sem repetições."""
     base = dict(especificacao.get("base") or {})
+    prefixo = especificacao.get("prefixo", "e19")
     if "id" in base:
         raise ValueError("o id é gerado automaticamente; tire-o da base")
     configs, vistos = [], set()
@@ -41,7 +45,9 @@ def expandir(especificacao: dict) -> list[experimento.Config]:
         for valores in itertools.product(*listas.values()):
             campos = {"agenda": "const", **base, **dict(zip(listas, valores, strict=True))}
             padrao = experimento.Config(id="_")
-            campos["id"] = gerar_id({"otimizador": padrao.otimizador, "lr": padrao.lr, **campos})
+            campos["id"] = gerar_id(
+                {"otimizador": padrao.otimizador, "lr": padrao.lr, **campos}, prefixo
+            )
             if campos["id"] in vistos:
                 continue
             vistos.add(campos["id"])
