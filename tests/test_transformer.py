@@ -87,3 +87,11 @@ def test_mapa_medio():
     mapa = atencao.mapa_medio(_modelo(), p, lote=4)
     assert mapa.shape == (N, N)
     np.testing.assert_allclose(mapa.sum(1), 1.0, rtol=1e-5)
+
+
+def test_entropia_por_janela():
+    p = particao_falsa(s=10, n=N)
+    ent = atencao.entropia_por_janela(_modelo(), p, lote=4)
+    assert ent.shape == (10,) and np.all((ent > 0) & (ent <= 1 + 1e-6))
+    sem = atencao.entropia_por_janela(_modelo(atencao=False), p)
+    np.testing.assert_allclose(sem, 0.0, atol=1e-5)  # só olha para si: entropia zero

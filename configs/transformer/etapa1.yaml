@@ -19,3 +19,5 @@ base:
   seeds: [0]
 grade:
   - {lr: [0.001, 0.003, 0.01, 0.03]}
+  # extensão: 0,01 e 0,03 quase empataram, e 0,03 estava na borda da grade
+  - {lr: [0.1, 0.3]}

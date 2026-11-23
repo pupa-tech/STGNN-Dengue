@@ -2,10 +2,13 @@
 
     python -m dengue.atencao
 
-Treina o Transformer congelado em `configs/transformer.yaml` (seed 0, só treino e validação),
-calcula a atenção média nas janelas da validação e salva
-`results/transformer/atencao_validacao.csv`: uma matriz 79 × 79 em que a linha i diz quanto o
-município i olhou, em média, para cada município j (cada linha soma 1). O teste não é usado.
+Treina o Transformer congelado em `configs/transformer.yaml` (seed 0, só treino e validação)
+e salva, a partir das janelas da validação (o teste não é usado):
+
+- `results/transformer/atencao_validacao.csv`: matriz 79 × 79 em que a linha i diz quanto o
+  município i olhou, em média, para cada município j (cada linha soma 1);
+- `results/transformer/atencao_janelas.csv`: por janela, a data da última semana de entrada
+  e a entropia relativa da atenção.
 """
 
 import numpy as np
@@ -15,6 +18,7 @@ import torch
 from dengue import dados, experimento, grafo, modelos
 
 CAMINHO_MAPA = dados.RAIZ / "results" / "transformer" / "atencao_validacao.csv"
+CAMINHO_JANELAS = dados.RAIZ / "results" / "transformer" / "atencao_janelas.csv"
 CONFIG_TRANSFORMER = dados.RAIZ / "configs" / "transformer.yaml"
 
 
@@ -27,6 +31,25 @@ def mapa_medio(modelo: modelos.TransformerEspacial, p: dados.Particao, lote: int
         soma = soma + mapas.mean(0).sum(0)
         total += mapas.shape[1]
     return (soma / total).numpy()
+
+
+def entropia_por_janela(
+    modelo: modelos.TransformerEspacial, p: dados.Particao, lote: int = 256
+) -> np.ndarray:
+    """Entropia relativa (0 = olha para um só município, 1 = uniforme) de cada janela [S].
+
+    A média de mapas concentrados pode parecer uniforme se cada janela olha para um lugar
+    diferente. Esta medida, feita janela a janela (média dos municípios e das camadas),
+    separa os dois casos.
+    """
+    x = torch.as_tensor(p.x, dtype=torch.float32)
+    partes = []
+    for i in range(0, len(x), lote):
+        mapas = modelo.mapas_atencao(x[i : i + lote])  # [camadas, B, N, N]
+        n = mapas.shape[-1]
+        ent = -(mapas * torch.log(mapas.clamp_min(1e-12))).sum(-1) / np.log(n)
+        partes.append(ent.mean(dim=(0, 2)))
+    return torch.cat(partes).numpy()
 
 
 def comparar_com_grafo(mapa: np.ndarray, dist: np.ndarray, k: int = 5) -> dict:
@@ -80,6 +103,15 @@ def main(caminho=CAMINHO_MAPA, seed: int = 0) -> pd.DataFrame:
     mapa.index.name = "municipio"
     caminho.parent.mkdir(parents=True, exist_ok=True)
     mapa.round(6).to_csv(caminho)
+    p_val = particoes["validacao"]
+    janelas = pd.DataFrame(
+        {
+            "data": p_val.datas_entrada[:, -1],
+            "entropia": entropia_por_janela(modelo, p_val),
+            "taxa_media": p_val.y_bruto[:, 0].mean(-1),  # taxa estadual na 1ª semana prevista
+        }
+    )
+    janelas.round(5).to_csv(CAMINHO_JANELAS, index=False)
     return mapa
 
 
