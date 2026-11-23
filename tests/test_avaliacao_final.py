@@ -52,8 +52,26 @@ def test_variantes_do_stgcn_so_mudam_o_que_devem():
     assert base.passos == final.passos and base.grafo == "geo"
 
 
+def _transformer_rapido():
+    return _final_rapida(modelo="transformer")
+
+
+def test_config_do_transformer_so_muda_a_arquitetura():
+    """O Transformer usa o mesmo protocolo de treino do STGCN final (task 23)."""
+    final = experimento.carregar_config(avaliacao_final.CONFIG_FINAL)
+    tr = experimento.carregar_config(avaliacao_final.CONFIG_TRANSFORMER)
+    assert tr.modelo == "transformer" and tr.atencao
+    mesmos = ("otimizador", "agenda", "perda", "huber_delta", "passos", "lote", "clip", "seeds")
+    assert all(getattr(tr, c) == getattr(final, c) for c in mesmos)
+    cfgs = avaliacao_final.configs_transformer(tr)
+    sem = dataclasses.asdict(cfgs["transformer_sem_atencao"])
+    assert {k for k, v in sem.items() if dataclasses.asdict(tr)[k] != v} == {"id", "atencao"}
+
+
 def test_avaliar_formato_das_saidas(df):
-    resultado, series, por_municipio = avaliacao_final.avaliar(df, _final_rapida(), LSTM_RAPIDO)
+    resultado, series, por_municipio = avaliacao_final.avaliar(
+        df, _final_rapida(), LSTM_RAPIDO, _transformer_rapido()
+    )
     modelos = ["persistencia", "climatologia_mediana", *avaliacao_final.TREINADOS]
     assert set(resultado["modelo"]) == set(modelos)
     contagem = resultado.groupby(["modelo", "particao"]).size()
@@ -70,12 +88,12 @@ def test_avaliar_formato_das_saidas(df):
 def test_validacao_nao_depende_do_teste(df):
     """Multiplicar o teste por 1000 não muda nada na validação: o teste não influencia
     nenhum treino, nenhuma escolha de época e nenhuma normalização."""
-    final = _final_rapida()
-    original, _, _ = avaliacao_final.avaliar(df, final, LSTM_RAPIDO)
+    final, tr = _final_rapida(), _transformer_rapido()
+    original, _, _ = avaliacao_final.avaliar(df, final, LSTM_RAPIDO, tr)
     alterado = df.copy()
     no_teste = alterado["data"] >= pd.Timestamp(dados.PARTICOES["teste"][0])
     alterado.loc[no_teste, "taxa"] *= 1000
-    mexido, _, _ = avaliacao_final.avaliar(alterado, final, LSTM_RAPIDO)
+    mexido, _, _ = avaliacao_final.avaliar(alterado, final, LSTM_RAPIDO, tr)
 
     def val(r):
         return r[r["particao"] == "validacao"].drop(columns="particao").reset_index(drop=True)
@@ -90,3 +108,29 @@ def test_main_se_recusa_a_repetir(tmp_path):
     (tmp_path / "teste_final.csv").write_text("ja rodou\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="uma única"):
         avaliacao_final.main(["--resultados", str(tmp_path)])
+
+
+def test_acrescentar_so_os_modelos_novos(df, tmp_path):
+    """Acrescentar o Transformer não mexe nas linhas que já existem, e não roda duas vezes."""
+    final, tr = _final_rapida(), _transformer_rapido()
+    antigos = ("lstm", "stgcn_final")
+    resultado, series, munic = avaliacao_final.avaliar(df, final, LSTM_RAPIDO, nomes=antigos)
+    resultado.to_csv(tmp_path / "teste_final.csv", index=False)
+    series.round(5).to_csv(tmp_path / "teste_final_series.csv", index=False)
+    munic.round(5).to_csv(tmp_path / "teste_final_municipios.csv")
+    antes = pd.read_csv(tmp_path / "teste_final.csv")
+
+    novos = ["transformer", "transformer_sem_atencao"]
+    avaliacao_final.acrescentar(tmp_path, novos, df, final, tr, LSTM_RAPIDO)
+    depois = pd.read_csv(tmp_path / "teste_final.csv")
+    pd.testing.assert_frame_equal(depois.iloc[: len(antes)], antes)  # linhas antigas intactas
+    assert set(depois["modelo"]) == {"persistencia", "climatologia_mediana", *antigos, *novos}
+    assert (depois[depois["modelo"].isin(novos)].groupby("modelo").size() == 4).all()
+
+    s = pd.read_csv(tmp_path / "teste_final_series.csv")
+    assert len(s) == len(series) and set(novos) <= set(s.columns) and s[novos].notna().all().all()
+    m = pd.read_csv(tmp_path / "teste_final_municipios.csv", index_col="municipio")
+    assert set(novos) <= set(m.columns) and m.columns[-1] == "taxa_media"
+
+    with pytest.raises(SystemExit, match="uma única"):
+        avaliacao_final.acrescentar(tmp_path, ["transformer"], df, final, tr, LSTM_RAPIDO)

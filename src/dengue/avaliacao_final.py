@@ -1,17 +1,22 @@
-"""Avaliação final no teste, 2016 a 2021 (task 21). Roda **uma única vez**.
+"""Avaliação final no teste, 2016 a 2021 (tasks 21 e 23). Cada modelo é avaliado **uma única vez**.
 
-    python -m dengue.avaliacao_final
+    python -m dengue.avaliacao_final                      # todos os modelos
+    python -m dengue.avaliacao_final --modelos transformer transformer_sem_atencao
 
 Todos os modelos são treinados só com o treino, e todas as escolhas (época, η, perda,
-agenda) vieram da validação. Aqui o teste é aberto pela primeira e única vez. Se os
-resultados já existem, o script se recusa a rodar de novo: repetir seria escolher pelo teste.
+agenda, arquitetura) vieram da validação, congeladas em `configs/` antes do teste. Um
+modelo que já está em `teste_final.csv` nunca roda de novo: repetir seria escolher pelo
+teste. Com `--modelos`, só os modelos pedidos são treinados, e as linhas deles são
+acrescentadas aos arquivos que já existem, sem mexer nas linhas dos outros.
 
 Modelos comparados:
 - `persistencia` e `climatologia_mediana`: baselines sem treino (task 13);
 - `lstm`: LSTM sem grafo, Adam com early stopping (task 14);
 - `stgcn_base`: STGCN geo com Adam 1e-3, agenda constante e MSE (baseline do desafio 3);
 - `stgcn_sem_grafo`: a configuração final com A = I (ablação da task 17);
-- `stgcn_final`: a configuração congelada em `configs/final.yaml`.
+- `stgcn_final`: a configuração congelada em `configs/final.yaml`;
+- `transformer`: Transformer espacial congelado em `configs/transformer.yaml` (task 23);
+- `transformer_sem_atencao`: o mesmo, com cada município vendo só a si mesmo (ablação).
 
 Saídas em `results/`:
 - `teste_final.csv`: uma linha por (modelo, seed, partição), com as métricas na validação
@@ -32,7 +37,15 @@ from dengue import baselines, dados, experimento, metricas, modelos, treino
 
 DIR_RESULTADOS = dados.RAIZ / "results"
 CONFIG_FINAL = dados.RAIZ / "configs" / "final.yaml"
-TREINADOS = ("lstm", "stgcn_base", "stgcn_sem_grafo", "stgcn_final")
+CONFIG_TRANSFORMER = dados.RAIZ / "configs" / "transformer.yaml"
+TREINADOS = (
+    "lstm",
+    "stgcn_base",
+    "stgcn_sem_grafo",
+    "stgcn_final",
+    "transformer",
+    "transformer_sem_atencao",
+)
 PARTICOES = ("validacao", "teste")
 HORIZONTES_SERIE = (1, 4)
 
@@ -44,6 +57,12 @@ def configs_stgcn(final: experimento.Config) -> dict[str, experimento.Config]:
     )
     sem_grafo = dataclasses.replace(final, id="final_stgcn_sem_grafo", grafo="identidade")
     return {"stgcn_base": base, "stgcn_sem_grafo": sem_grafo, "stgcn_final": final}
+
+
+def configs_transformer(cfg: experimento.Config) -> dict[str, experimento.Config]:
+    """O Transformer congelado e a ablação sem atenção (só muda a máscara)."""
+    sem = dataclasses.replace(cfg, id=f"{cfg.id}_sem_atencao", atencao=False)
+    return {"transformer": cfg, "transformer_sem_atencao": sem}
 
 
 def prever_baselines(y: np.ndarray, datas: pd.DatetimeIndex, particao: str) -> dict:
@@ -83,20 +102,32 @@ def avaliar(
     df: pd.DataFrame,
     final: experimento.Config,
     config_lstm: treino.ConfigTreino | None = None,
+    transformer: experimento.Config | None = None,
+    nomes: tuple[str, ...] = TREINADOS,
+    com_baselines: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Roda tudo e devolve (métricas, séries estaduais, MAE por município)."""
+    """Roda os modelos `nomes` (e os baselines) e devolve (métricas, séries, MAE por município).
+
+    As seeds são as de `final`. `transformer` é a config congelada do Transformer, exigida
+    quando `nomes` tem um dos Transformers.
+    """
     config_lstm = config_lstm or treino.ConfigTreino()
     cfgs = configs_stgcn(final)
+    if transformer is not None:
+        cfgs |= configs_transformer(transformer)
+    faltando = [n for n in nomes if n != "lstm" and n not in cfgs]
+    if faltando:
+        raise ValueError(f"sem config para {faltando}")
     particoes, _ = dados.preparar(df)
     _, y, datas = dados.montar_tensor(df)
     limiar = metricas.limiar_surto(y[dados.indices_particoes(datas)["treino"]])
 
     # previsões[modelo][particao] = lista de [S, H, N], uma por seed
     previsoes = {}
-    for p in PARTICOES:
+    for p in PARTICOES if com_baselines else ():
         for nome, y_hat in prever_baselines(y, datas, p).items():
             previsoes.setdefault(nome, {})[p] = [y_hat]
-    for nome in TREINADOS:
+    for nome in nomes:
         for seed in final.seeds:
             print(f"[treino] {nome} seed {seed}", flush=True)
             for p, y_hat in treinar_e_prever(nome, seed, df, particoes, cfgs, config_lstm).items():
@@ -111,7 +142,7 @@ def avaliar(
                     {
                         "modelo": nome,
                         "particao": p,
-                        "seed": final.seeds[i] if nome in TREINADOS else np.nan,
+                        "seed": final.seeds[i] if nome in nomes else np.nan,
                         **metricas.resumo(y_real, y_hat, limiar),
                         **metricas.por_regime(y_real, y_hat, limiar),
                     }
@@ -144,23 +175,69 @@ def avaliar(
     return resultado, pd.concat(series, ignore_index=True), por_municipio
 
 
-def main(argv=None) -> pd.DataFrame:
-    parser = argparse.ArgumentParser(description="Avaliação final no teste (uma única vez).")
-    parser.add_argument("--resultados", default=DIR_RESULTADOS, help="pasta de saída")
-    args = parser.parse_args(argv)
-    pasta = Path(args.resultados)
-    caminhos = {
+def _caminhos(pasta: Path) -> dict[str, Path]:
+    return {
         "metricas": pasta / "teste_final.csv",
         "series": pasta / "teste_final_series.csv",
         "municipios": pasta / "teste_final_municipios.csv",
     }
-    if any(c.exists() for c in caminhos.values()):
+
+
+def acrescentar(pasta: Path, nomes, df, final, transformer, config_lstm=None) -> pd.DataFrame:
+    """Avalia só os modelos `nomes` e acrescenta as linhas e colunas deles aos arquivos.
+
+    Recusa se algum deles já foi avaliado: cada modelo vê o teste uma única vez.
+    """
+    caminhos = _caminhos(Path(pasta))
+    if not all(c.exists() for c in caminhos.values()):
+        raise SystemExit("Não há avaliação anterior para completar. Rode sem --modelos.")
+    antigo = pd.read_csv(caminhos["metricas"])
+    repetidos = sorted(set(nomes) & set(antigo["modelo"]))
+    if repetidos:
         raise SystemExit(
-            "O teste já foi avaliado (results/teste_final*.csv existe). Ele é usado uma única "
-            "vez: rodar de novo seria escolher pelo teste. Use os arquivos que já existem."
+            f"{repetidos} já foram avaliados no teste, e cada modelo é usado uma única vez: "
+            "rodar de novo seria escolher pelo teste. Use os arquivos que já existem."
+        )
+    resultado, series, por_municipio = avaliar(
+        df, final, config_lstm, transformer, nomes=tuple(nomes), com_baselines=False
+    )
+    series_antigas = pd.read_csv(caminhos["series"], parse_dates=["data"])
+    series["data"] = pd.to_datetime(series["data"])
+    juntas = series_antigas.merge(series, on=["data", "h"], how="left", suffixes=("", "_novo"))
+    if not np.allclose(juntas["real"], juntas["real_novo"], atol=1e-4):
+        raise ValueError("a série real mudou: os dados não são os mesmos da avaliação anterior")
+    juntas = juntas.drop(columns="real_novo")
+    munic = pd.read_csv(caminhos["municipios"], index_col="municipio")
+    munic = munic.join(por_municipio[list(nomes)].round(5))
+    munic = munic[[c for c in munic.columns if c != "taxa_media"] + ["taxa_media"]]
+
+    pd.concat([antigo, resultado], ignore_index=True).to_csv(caminhos["metricas"], index=False)
+    juntas.round(5).to_csv(caminhos["series"], index=False)
+    munic.to_csv(caminhos["municipios"])
+    return resultado
+
+
+def main(argv=None) -> pd.DataFrame:
+    parser = argparse.ArgumentParser(description="Avaliação final no teste (uma vez por modelo).")
+    parser.add_argument("--resultados", default=DIR_RESULTADOS, help="pasta de saída")
+    parser.add_argument(
+        "--modelos", nargs="+", choices=TREINADOS, help="só estes, acrescentados aos arquivos"
+    )
+    args = parser.parse_args(argv)
+    pasta = Path(args.resultados)
+    caminhos = _caminhos(pasta)
+    if args.modelos is None and any(c.exists() for c in caminhos.values()):
+        raise SystemExit(
+            "O teste já foi avaliado (results/teste_final*.csv existe). Cada modelo é usado uma "
+            "única vez: rodar de novo seria escolher pelo teste. Use os arquivos que já existem."
         )
     final = experimento.carregar_config(CONFIG_FINAL)
-    resultado, series, por_municipio = avaliar(dados.carregar_tabela(), final)
+    transformer = experimento.carregar_config(CONFIG_TRANSFORMER)
+    if args.modelos is not None:
+        return acrescentar(pasta, args.modelos, dados.carregar_tabela(), final, transformer)
+    resultado, series, por_municipio = avaliar(
+        dados.carregar_tabela(), final, transformer=transformer
+    )
     pasta.mkdir(parents=True, exist_ok=True)
     resultado.to_csv(caminhos["metricas"], index=False)
     series.round(5).to_csv(caminhos["series"], index=False)
