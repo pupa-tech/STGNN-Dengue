@@ -1,9 +1,10 @@
 """Testes do Transformer espacial (task 23)."""
 
+import numpy as np
 import torch
 from test_lstm import particao_falsa
 
-from dengue import dados, modelos, treino
+from dengue import atencao, dados, grafo, modelos, treino
 
 N = 6
 
@@ -61,3 +62,28 @@ def test_treino_reduz_a_perda():
     antes = treino.perda(modelo, p)
     treino.treinar(modelo, p, p, treino.ConfigTreino(max_epocas=60, lr=1e-2, lote=8))
     assert treino.perda(modelo, p) < 0.3 * antes
+
+
+def _dist_em_linha(n=N):
+    pos = np.arange(n, dtype=float)
+    return np.abs(pos[:, None] - pos[None, :])
+
+
+def test_comparar_com_grafo_casos_extremos():
+    dist = _dist_em_linha()
+    aresta = (grafo.grafo_knn(dist, k=2) > 0).astype(float)
+    so_vizinhos = aresta / aresta.sum(1, keepdims=True)
+    r = atencao.comparar_com_grafo(so_vizinhos, dist, k=2)
+    assert r["fracao_vizinhos"] == 1.0 and r["atencao_propria"] == 0.0
+    assert r["corr_distancia"] < 0  # olha para quem está perto
+
+    uniforme = np.full((N, N), 1 / N)
+    r = atencao.comparar_com_grafo(uniforme, dist, k=2)
+    assert np.isclose(r["fracao_vizinhos"], r["fracao_esperada"])  # igual ao acaso
+
+
+def test_mapa_medio():
+    p = particao_falsa(s=10, n=N)
+    mapa = atencao.mapa_medio(_modelo(), p, lote=4)
+    assert mapa.shape == (N, N)
+    np.testing.assert_allclose(mapa.sum(1), 1.0, rtol=1e-5)
