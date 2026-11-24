@@ -1,0 +1,17 @@
+# Task 23: ablação na validação. A config congelada (configs/transformer.yaml) com a atenção
+# desligada: cada município só olha para si mesmo, como o STGCN com A = I.
+# Rode com:  python -m dengue.experimento configs/transformer/sem_atencao.yaml --resultados results/transformer
+id: e23_transformer_sem_atencao_adamw_lr0.01_warmup_cos
+etapa: ablacao
+modelo: transformer
+atencao: false
+otimizador: adamw
+lr: 0.01
+agenda: warmup_cos
+perda: huber
+huber_delta: 1.0
+passos: 920
+lote: 32
+clip: 5.0
+log_cada: 20
+seeds: [0, 1, 2]

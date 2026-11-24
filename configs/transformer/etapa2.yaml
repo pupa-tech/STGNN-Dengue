@@ -1,0 +1,21 @@
+# Task 23, etapa 2: os 3 melhores η da etapa 1 (vale plano entre 0,01 e 0,1; 0,3 já piora muito)
+# confirmados com 3 seeds, como na etapa 4 da task 19. A seed 0 já rodou e é reaproveitada.
+#   η = 0,1 (0,0425) · η = 0,01 (0,0429) · η = 0,03 (0,0431)   [melhor perda na validação, seed 0]
+# Critério: menor perda média na validação entre as 3 seeds.
+# Rode com:  python -m dengue.varredura configs/transformer/etapa2.yaml --resultados results/transformer
+prefixo: e23_transformer
+base:
+  etapa: etapa2
+  modelo: transformer
+  atencao: true
+  otimizador: adamw
+  agenda: warmup_cos
+  perda: huber
+  huber_delta: 1.0
+  passos: 920
+  lote: 32
+  clip: 5.0
+  log_cada: 20
+  seeds: [0, 1, 2]
+grade:
+  - {lr: [0.01, 0.03, 0.1]}

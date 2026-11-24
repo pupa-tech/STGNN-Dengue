@@ -47,3 +47,14 @@ def test_configs_do_repositorio_carregam():
     for caminho in sorted((dados.RAIZ / "configs" / "otimizacao").glob("*.yaml")):
         cfgs = varredura.carregar(caminho)
         assert cfgs and all(c.modelo == "stgcn" and c.passos == 920 for c in cfgs)
+
+
+def test_prefixo_separa_os_ids_de_outro_modelo():
+    grade = [{"otimizador": "adamw", "lr": 0.01, "agenda": "warmup_cos"}]
+    stgcn = varredura.expandir({"grade": grade})
+    transf = varredura.expandir(
+        {"prefixo": "e23_transformer", "base": {"modelo": "transformer"}, "grade": grade}
+    )
+    assert stgcn[0].id == "e19_adamw_lr0.01_warmup_cos"
+    assert transf[0].id == "e23_transformer_adamw_lr0.01_warmup_cos"
+    assert transf[0].modelo == "transformer"

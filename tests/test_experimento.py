@@ -7,7 +7,7 @@ import pytest
 import torch
 from conftest import fazer_bruto
 
-from dengue import dados, experimento
+from dengue import dados, experimento, modelos
 
 
 def test_carregar_config_do_repositorio():
@@ -85,3 +85,17 @@ def test_executar_ponta_a_ponta(tmp_path, otimizador):
 
     # rodar de novo pula o que já existe (dá para retomar)
     assert experimento.executar(cfg, df=df, dir_resultados=tmp_path).empty
+
+
+@pytest.mark.parametrize("atencao", [True, False])
+def test_executar_transformer(tmp_path, atencao):
+    df = dados.limpar(fazer_bruto(n_municipios=8, n_semanas=900))
+    cfg = experimento.Config(
+        id="tr", modelo="transformer", atencao=atencao, otimizador="adamw", lr=1e-2,
+        agenda="warmup_cos", perda="huber", passos=8, lote=64, log_cada=4, seeds=[0],
+    )
+    modelo = experimento.criar_modelo(cfg, df)
+    assert isinstance(modelo, modelos.TransformerEspacial)
+    assert (modelo.mascara is None) == atencao
+    linhas = experimento.executar(cfg, df=df, dir_resultados=tmp_path)
+    assert len(linhas) == 1 and bool(linhas.loc[0, "atencao"]) == atencao

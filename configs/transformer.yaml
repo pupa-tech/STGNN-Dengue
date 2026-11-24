@@ -1,0 +1,22 @@
+# Task 23: configuração final do Transformer espacial, congelada antes de abrir o teste.
+# Vem só da validação:
+#   - protocolo de treino: o mesmo do STGCN final (configs/final.yaml), para que a comparação
+#     seja só de arquitetura: AdamW, warmup + cosseno, Huber, 920 passos, lote 32, clip 5;
+#   - η: configs/transformer/etapa1.yaml (grade com 1 seed) e etapa2.yaml (3 finalistas × 3
+#     seeds). η = 0,01 teve a menor perda média na validação (0,0429 ± 0,0002).
+# A ablação sem atenção é esta mesma config com atencao: false (avaliacao_final.py).
+# Rode com:  python -m dengue.avaliacao_final --modelos transformer transformer_sem_atencao
+id: final_transformer_adamw_lr1e-2_warmup_cos_huber
+etapa: final
+modelo: transformer
+atencao: true
+otimizador: adamw
+lr: 0.01
+agenda: warmup_cos
+perda: huber
+huber_delta: 1.0
+passos: 920
+lote: 32
+clip: 5.0
+log_cada: 20
+seeds: [0, 1, 2]

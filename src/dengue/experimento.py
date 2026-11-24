@@ -35,14 +35,15 @@ from dengue import dados, grafo, metricas, modelos, perdas, treino
 DIR_RESULTADOS = dados.RAIZ / "results"
 OTIMIZADORES = ("sgd", "sgd_nesterov", "adam", "adamw", "muon")
 AGENDAS = ("const", "cos", "warmup_cos", "multistep")
-MODELOS = ("stgcn", "lstm")
+MODELOS = ("stgcn", "lstm", "transformer")
 
 
 @dataclass
 class Config:
     id: str
     modelo: str = "stgcn"
-    grafo: str = "geo"
+    grafo: str = "geo"  # só vale para o stgcn
+    atencao: bool = True  # só vale para o transformer: False = cada município só vê a si mesmo
     otimizador: str = "adam"
     lr: float = 1e-3
     weight_decay: float = 0.0
@@ -198,6 +199,8 @@ def criar_otimizadores(modelo: nn.Module, cfg: Config) -> list[torch.optim.Optim
 def criar_modelo(cfg: Config, df: pd.DataFrame) -> nn.Module:
     if cfg.modelo == "lstm":
         return modelos.LSTM()
+    if cfg.modelo == "transformer":
+        return modelos.TransformerEspacial(len(dados.municipios(df)), atencao=cfg.atencao)
     return modelos.STGCN(grafo.laplaciana_do_projeto(df, cfg.grafo))
 
 

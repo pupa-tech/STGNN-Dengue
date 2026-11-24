@@ -5,7 +5,7 @@
 Só lê os CSV que já estão em `results/`, sem treinar nada e sem abrir o teste de novo. Salva
 três PNGs em `results/figuras/`:
 
-- `resultado_teste.png`: MAE, RMSE e MAE em surto de cada modelo no teste (task 21);
+- `resultado_teste.png`: MAE, RMSE e MAE em surto de cada modelo no teste (tasks 21 e 23);
 - `serie_estadual.png`: taxa média estadual real e prevista ao longo do teste, em h = 4;
 - `otimizadores_eta.png`: perda na validação × η para cada otimizador (task 19, etapa 2).
 """
@@ -31,6 +31,8 @@ NOMES = {
     "stgcn_base": "STGCN, protocolo antigo",
     "stgcn_sem_grafo": "STGCN final sem grafo",
     "stgcn_final": "STGCN final",
+    "transformer_sem_atencao": "Transformer sem atenção",
+    "transformer": "Transformer espacial",
 }
 CORES = {
     "persistencia": "tab:gray",
@@ -39,6 +41,8 @@ CORES = {
     "stgcn_base": "lightsteelblue",
     "stgcn_sem_grafo": "tab:cyan",
     "stgcn_final": "tab:blue",
+    "transformer_sem_atencao": "plum",
+    "transformer": "tab:purple",
 }
 OTIMIZADORES = {
     "sgd": "SGD",
@@ -76,7 +80,7 @@ def serie_estadual(series: pd.DataFrame, caminho: Path, h: int = 4) -> Path:
     s = series[series["h"] == h].sort_values("data")
     fig, ax = plt.subplots(figsize=(12, 3.8))
     ax.plot(s["data"], s["real"], color="k", lw=2, label="real")
-    for m in ("persistencia", "lstm", "stgcn_final"):
+    for m in ("persistencia", "lstm", "stgcn_final", "transformer"):
         ax.plot(s["data"], s[m], color=CORES[m], lw=1.2, label=NOMES[m])
     ax.set_yscale("symlog", linthresh=0.5)
     ax.set_yticks([0, 0.25, 0.5, 1, 2, 4, 8])
